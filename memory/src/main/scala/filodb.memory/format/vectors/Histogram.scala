@@ -313,6 +313,31 @@ final case class MaxHistogram(innerHist: MutableHistogram, max: Double) extends 
 }
 
 /**
+  * DDSHistogram is used for DDSketch histogram implementation
+  */
+final case class DDSHistogram(buckets: DDSBuckets, values: Array[Long]) extends HistogramWithBuckets {
+  final def bucketValue(no: Int): Double = values(no).toDouble
+  def serialize(intoBuf: Option[MutableDirectBuffer] = None): MutableDirectBuffer = ???
+
+  override def quantile(q: Double): Double = {
+    val result = if (q < 0) Double.NegativeInfinity
+    else if (q > 1) Double.PositiveInfinity
+    else if (numBuckets < 2) Double.NaN
+    else {
+      // find rank for the quantile using total number of occurrences (which is the last bucket value)
+      var rank = q * topBucketValue
+      // using rank, find the le bucket which would have the identified rank
+      val b = firstBucketGTE(rank) + 1
+
+      // find gamma
+      val gamma = buckets.bucketTop(1) / buckets.bucketTop(0)
+      2 * Math.pow(gamma, b) / (gamma + 1)
+    }
+    result
+  }
+}
+
+/**
  * A scheme for buckets in a histogram.  Since these are Prometheus-style histograms,
  * each bucket definition consists of occurrences of numbers which are less than or equal to the bucketTop
  * or definition of each bucket.
@@ -404,6 +429,27 @@ object HistogramBuckets {
   val binaryBuckets64 = GeometricBuckets(2.0d, 2.0d, 64, minusOne = true)
 
   val emptyBuckets = GeometricBuckets(2.0d, 2.0d, 0)
+}
+
+/**
+  * DDS bucketing scheme, where each bucket falls between (y^(i-1), y^i]
+  * @param alpha
+  */
+final case class DDSBuckets(gamma: Double,
+                            numBuckets: Int) extends HistogramBuckets {
+  final def bucketTop(no: Int): Double = 1 * Math.pow(gamma, no)
+
+  import HistogramBuckets._
+
+  final def serialize(buf: MutableDirectBuffer, pos: Int): Int = {
+    require(numBuckets < 65536, s"Too many buckets: $numBuckets")
+    val numBucketsPos = pos + 2
+    buf.putShort(pos, (2 + 8 + 8).toShort)
+    buf.putShort(numBucketsPos, numBuckets.toShort, LITTLE_ENDIAN)
+    buf.putDouble(numBucketsPos + OffsetBucketDetails, 1, LITTLE_ENDIAN)
+    buf.putDouble(numBucketsPos + OffsetBucketDetails + 8, 1, LITTLE_ENDIAN)
+    pos + 2 + 2 + 8 + 8
+  }
 }
 
 /**

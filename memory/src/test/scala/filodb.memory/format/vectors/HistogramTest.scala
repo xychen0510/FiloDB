@@ -5,6 +5,7 @@ import org.agrona.ExpandableArrayBuffer
 object HistogramTest {
   val bucketScheme = GeometricBuckets(1.0, 2.0, 8)
   val customScheme = CustomBuckets(Array(0.25, 0.5, 1.0, 2.5, 5.0, 10, Double.PositiveInfinity))
+  val ddsScheme = DDSBuckets(2, 5)
   val rawHistBuckets = Seq(
     Array[Double](10, 15, 17, 20, 25, 34, 76, 82),
     Array[Double](6, 16, 26, 26, 36, 38, 56, 59),
@@ -46,6 +47,11 @@ class HistogramTest extends NativeVectorTest {
       buckets2.allBucketTops shouldEqual Array(1.0, 3.0, 7.0, 15.0, 31.0, 63.0, 127.0, 255.0)
     }
 
+    it("can list out bucket definition values properly for DDS") {
+      val buckets1 = DDSBuckets(2, 4)
+      buckets1.allBucketTops shouldEqual Array(1.0, 2.0, 4.0, 8.0)
+    }
+
     it("can serialize and deserialize properly") {
       val buckets1 = GeometricBuckets(5.0, 2.0, 4)
       buckets1.serialize(writeBuf, 0) shouldEqual 2+2+8+8
@@ -85,6 +91,11 @@ class HistogramTest extends NativeVectorTest {
       val h3 = MaxHistogram(MutableHistogram(HistogramBuckets.binaryBuckets64, values3), 1617.0)
       h3.quantile(0.99) shouldEqual 1593.2 +- 0.1
       h3.quantile(0.90) shouldEqual 1379.4 +- 0.1
+    }
+
+    it("should calculate quantile correctly for dds") {
+      val h = DDSHistogram(ddsScheme, Array(10L, 15L, 17L, 20L, 25L))
+      h.quantile(0.95) shouldEqual 21.3 +- 0.1
     }
 
     it("should serialize to and from BinaryHistograms and compare correctly") {
